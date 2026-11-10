@@ -1,0 +1,48 @@
+name: Сборка релиза
+
+on:
+  release:
+    types: [published]        # автоматически при каждом новом релизе
+  workflow_dispatch:          # или вручную, для уже существующего релиза
+    inputs:
+      tag:
+        description: "Тег релиза, например v1.0.0"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - name: Получить код
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - name: Установить .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Собрать программу
+        run: dotnet publish VoiceCarSim.csproj -c Release -r win-x64 --self-contained true -o publish
+
+      - name: Скачать модель Vosk
+        shell: pwsh
+        run: |
+          Invoke-WebRequest "https://alphacephei.com/vosk/models/vosk-model-small-ru-0.22.zip" -OutFile model.zip
+          Expand-Archive model.zip -DestinationPath modeltmp
+          Move-Item "modeltmp/vosk-model-small-ru-0.22" "publish/model"
+
+      - name: Упаковать в архив
+        shell: pwsh
+        run: Compress-Archive -Path "publish/*" -DestinationPath "VoiceCarSim-$env:TAG-win-x64.zip"
+
+      - name: Прикрепить архив к релизу
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload ${{ env.TAG }} "VoiceCarSim-${{ env.TAG }}-win-x64.zip" --clobber
